@@ -13,9 +13,11 @@ https://dubai.dubizzle.com/en/property-for-sale/residential/villahouse/?filters=
 
 import requests
 import time
+import datetime
 from bs4 import BeautifulSoup
 import pandas as pd
 import re
+from local import get_html
 
 def get_url(buy_rent: str, location: str, page: int = 1) -> str:
     url_dict = {'buy':'for-sale', 'rent': 'to-rent', 'spr':'the-springs','lakes': 'the-lakes', 'mdw': 'the-meadows', 'ji': 'jumeirah-islands', 
@@ -25,13 +27,6 @@ def get_url(buy_rent: str, location: str, page: int = 1) -> str:
         return url
     else:
         return f"{url}page-{page}/"
-
-
-def get_res_text(url: str) -> str:
-    print(f"Making request to {url}")
-    res = requests.get(url)
-    assert res.status_code == 200
-    return res.text
 
 def get_type(desc):
     type =  re.search(r'\bType\s(\d\w?)\b', desc)
@@ -91,6 +86,7 @@ def get_details(html: str) -> dict:
     posted = soup.find(attrs={'aria-label': 'Reactivated date'})
     if posted is not None:
         posted = posted.string
+        posted = datetime.datetime.strptime(posted, '%B %d, %Y').strftime('%Y-%m-%d')
 
     desc = soup.find(attrs={'aria-label': 'Property description'}).get_text()
     prop_type = get_type(desc)
@@ -120,18 +116,19 @@ def get_single_page(html: str) -> list:
     ul = soup.find("ul", class_="_357a9937")
     lis = ul.find_all('li')
     listings = []
-    
+
     for li in lis:
         anchor = li.find("a")
         if anchor is None:
           continue
         href = anchor["href"]
         url = f"https://www.bayut.com{href}"
-        html = get_res_text(url)
-        time.sleep(0.5)
+        html, is_found = get_html(url)
+        if not is_found:
+            time.sleep(0.5)
         details = get_details(html)
         listings.append((details['header'], details['price'], details['beds'], details['baths'], details['bu_area'], details['prop_type'],
-                         details['plot'], details['agency'], details['agent_name'], details['desc'], details['badge'], details['posted'] ))
+                         details['plot'], details['desc'], details['badge'], details['posted'], details['agency'], details['agent_name'] ))
 
     return listings
 
@@ -139,7 +136,7 @@ page_no = 1
 all_listings = []
 while True:
     url = get_url("buy", "acacia", page_no)
-    html = get_res_text(url)
+    html, is_found = get_html(url)
     # time.sleep(0.5)
     listings = get_single_page(html)
     print(len(listings))
@@ -149,24 +146,26 @@ while True:
     page_no += 1
 print(len(all_listings))
 
-frame = pd.DataFrame(all_listings, columns = ['Title', 'Prop Type', 'Price', 'Beds', 'Baths', 'Built up', 'Plot size',  
+frame = pd.DataFrame(all_listings, columns = ['Title', 'Price', 'Beds', 'Baths', 'Built up', 'Prop Type', 'Plot size',
                                               'Desc', 'Badge', 'Posted',  'Agency', 'Agent Name'])
 frame = frame.fillna(0)
-frame = frame.astype({
-    'Title': str,
-    'Prop Type' : str,
-    'Price': int,
-    'Beds': str,
-    'Baths': str,
-    'Built up': str,
-    'Plot size' : str,
-    'Agency': str,
-    'Desc': str,
-    'Badge': str,
-    'Posted' : str,
-    # 'avg_rent': str,
-    'Agent Name': str
-})
+# frame = frame.astype({
+#     'Title': str,
+#     'Price': int,
+#     'Beds': str,
+#     'Baths': str,
+#     'Built up': str,
+#     'Prop Type' : str,
+#     'Plot size' : str,
+#     'Desc': str,
+#     'Badge': str,
+#     'Posted' : str,
+#     'Agency': str,
+#     # 'avg_rent': str,
+#     'Agent Name': str
+# })
+pd.to_datetime(frame['Posted'], format="%Y-%m-%d")
+frame.sort_values(["Posted"], inplace=True, ascending=False)
 frame[frame['Price'] == frame['Price'].min()]
 frame.to_excel('acacia.xlsx', index=False)
 
@@ -185,6 +184,3 @@ frame.to_excel('acacia.xlsx', index=False)
 # # print(soup.prettify())
 # x = soup.span.find(attrs= {'area-label': 'Plot Area'}).text
 # print(x)
-
-
-
